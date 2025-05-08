@@ -1,15 +1,13 @@
 import json
-import os
-import pty
 import re
-import subprocess
-import time
 import torch
+from typing import Optional
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     pipeline,
 )
+from adventure import AdventureGame
 
 torch.random.manual_seed(0)
 
@@ -70,17 +68,9 @@ generation_args = {
 
 
 def run_adventure_game() -> None:
-    # Start the adventure game using pty
-    master, slave = pty.openpty()
-    adventure_process = subprocess.Popen(
-        ["adventure"],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        text=True,
-    )
-    os.close(slave)
-    game_output = read_output(master)
+    # Initialize the adventure game
+    game = AdventureGame()
+    game_output = game.read_output()
 
     initial_commands = [
         """
@@ -109,24 +99,18 @@ COMMAND: command({"line": "yes"})
         command = parse_command(model_response)
         if command is not None:
             # Send to game
-            os.write(master, f"{command['line']}\n".encode("utf-8"))
+            command_text = command["line"]
+            game.send_command(command_text)
 
             # Read the game's response
-            game_output = (
-                read_output(master).strip().removeprefix(command["line"]).strip()
-            )
+            game_output = game.read_output().strip().removeprefix(command_text).strip()
 
-            if adventure_process.poll() is not None:
+            if not game.is_running():
                 print("Game has terminated")
                 break
 
 
-def read_output(fd):
-    time.sleep(0.1)
-    return os.read(fd, 4096).decode("utf-8")
-
-
-def parse_command(input_str: str) -> dict[str, str]:
+def parse_command(input_str: str) -> Optional[dict[str, str]]:
     # Match anything between the parentheses
     match = re.search(r"command\((.*)\)", input_str)
     if match and match.group(1):
